@@ -354,7 +354,7 @@ function buildPanel(
   });
 
   panel.append(
-    Object.assign(document.createElement('h1'), { textContent: 'WebGPU Path Tracer' }),
+    Object.assign(document.createElement('h1'), { textContent: 'Lucida' }),
     Object.assign(document.createElement('p'), {
       className: 'subtitle',
       textContent: deviceName,

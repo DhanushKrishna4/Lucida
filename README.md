@@ -1,4 +1,4 @@
-# WebGPU Path Tracer
+# Lucida
 
 A physically-based Monte Carlo path tracer that runs entirely in WebGPU compute
 shaders. No rendering libraries — the intersection routines, the acceleration
