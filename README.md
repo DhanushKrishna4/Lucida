@@ -4,7 +4,7 @@ A physically-based Monte Carlo path tracer that runs entirely in WebGPU compute
 shaders. No rendering libraries — the intersection routines, the acceleration
 structure and the light transport are all implemented here.
 
-**Status: build steps 1–17 complete.** WebGPU initialisation, a CPU reference
+**Status: build steps 1–18 complete.** WebGPU initialisation, a CPU reference
 tracer producing a correct Cornell box, a GPU megakernel that matches it,
 progressive accumulation with tone mapping and interactive camera controls,
 triangle meshes traversed through a binned-SAH BVH, a GGX microfacet BSDF that
@@ -17,10 +17,12 @@ codes, a radix sort, Karras's hierarchy and an AABB fit, all in compute shaders)
 **transmission** (rough dielectrics with Fresnel-weighted refraction, total
 internal reflection, and light sampling that works through glass), **environment lighting** importance-sampled with a 2D CDF,
 **Owen-scrambled Sobol sampling**, **instancing** through a two-level
-hierarchy, an **edge-avoiding à-trous denoiser**, and **diagnostic render
-modes**.
+hierarchy, an **edge-avoiding à-trous denoiser**, **diagnostic render
+modes**, and a full control panel with depth of field and a **measured**
+convergence readout — per-pixel variance reduced on the GPU, validated against
+the spread of sixteen independent renders rather than modelled as `1/sqrt(N)`.
 
-<img src="out/cornell-cpu.png" width="420" alt="Cornell box: red wall left, green right, two diffuse spheres lit by a ceiling area light">
+<img src="web/public/preview.png" width="420" alt="Cornell box: red wall left, green right, two diffuse spheres lit by a ceiling area light">
 
 ---
 
@@ -51,8 +53,8 @@ natively. That gives three things a browser-only setup cannot:
 * CPU-vs-GPU comparison runs in `cargo test`, in under a second, with no browser
   round trip;
 * compute kernels can be unit tested against known inputs — which is how the
-  radix sort, prefix scan and Karras hierarchy build will be validated, rather
-  than by staring at a BVH heatmap;
+  radix sort, the Karras hierarchy and the AABB fit are each validated against a
+  CPU twin, rather than by staring at a BVH heatmap;
 * RenderDoc and Metal frame capture work.
 
 The browser is then validated against the native GPU, so any remaining
@@ -178,7 +180,9 @@ alpha    1e-5     1e-4     3e-4    1e-3    2e-3      4e-3
 
 The clamp this code originally used was `1e-4` — a **6× energy gain** on
 near-mirror surfaces. It is now `2e-3`; below that the right answer is a delta
-specular lobe, which arrives with smooth dielectrics at step 12.
+specular lobe. Dielectrics landed at step 12 and kept this clamp rather than
+adding a delta path: at `2e-3` the roughest visible difference is below the
+noise floor of any render that reaches it.
 
 **Schlick is less accurate than usually claimed.** Measured against the exact
 dielectric equations at IOR 1.5, maximum absolute error is **0.036** near
@@ -1422,11 +1426,11 @@ share exactly.
   approaches 4πr², and Euler's formula pins the vertex count (V = F/2 + 2), which
   is what proves the midpoint cache is actually sharing vertices.
 
-The tests that matter most are still ahead: the white furnace test and the
-chi-squared sampling tests arrive with GGX at steps 6–7. The GPU evaluation
-harness they need (`crates/gpu/src/eval.rs` — run a shader function over an
-array of inputs, read the results back) is already in place, built for the tone
-mapping comparison.
+The white furnace and chi-squared sampling tests, which were the ones this
+project was most worried about getting wrong, run against every BSDF through
+`crates/gpu/src/eval.rs` — a harness that runs a shader function over an array of
+inputs and reads the results back, originally built for the tone mapping
+comparison.
 
 A note on CPU/GPU agreement thresholds: mesh scenes legitimately land an order of
 magnitude higher than analytic ones (≈2e-3 versus ≈2e-4). Every facet boundary is
