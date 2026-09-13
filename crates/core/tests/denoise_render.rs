@@ -26,18 +26,6 @@ fn params(spp: u32) -> RenderParams {
     }
 }
 
-/// Root-mean-square error against a reference.
-fn rmse(a: &Film, b: &Film) -> f64 {
-    let n = a.data.len() as f64;
-    (a.data
-        .iter()
-        .zip(b.data.iter())
-        .map(|(x, y)| (*x - *y).length_squared() as f64)
-        .sum::<f64>()
-        / n)
-        .sqrt()
-}
-
 /// Sorted per-pixel distances from a reference.
 fn sorted_errors(a: &Film, b: &Film) -> Vec<f64> {
     let mut e: Vec<f64> = a

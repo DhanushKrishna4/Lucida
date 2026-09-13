@@ -616,7 +616,16 @@ export class Renderer {
       next.height !== prev.height ||
       next.maxDepth !== prev.maxDepth ||
       next.frameSeed !== prev.frameSeed ||
-      next.sampling !== prev.sampling;
+      next.sampling !== prev.sampling ||
+      // The sampler belongs here even though both kinds are unbiased and a
+      // mixture of them still converges to the right answer. This control
+      // exists to *compare* them at equal sample counts, and without a reset
+      // the image is a blend of both and the convergence readout reports the
+      // blend — so the one question the toggle is there to answer cannot be
+      // asked. Architecture deliberately stays off this list: the two agree to
+      // 8e-9, so switching mid-render keeps the samples and is itself a way to
+      // watch them agree.
+      next.sampler !== prev.sampler;
     this.settings = next;
     if (invalidates) this.reset();
   }

@@ -235,8 +235,9 @@ fn the_tree_does_not_change_the_image() {
     // Constructed fresh per builder rather than cloned: `build_bvh_with`
     // compacts the triangle array into traversal order, so the two builders must
     // not share one.
-    let cases: [(&str, fn() -> pt_core::scenes::SceneDef); 1] =
-        [("cornell-mesh", scenes::cornell_mesh)];
+    /// A scene to run both builders over, constructed fresh each time.
+    type Case = (&'static str, fn() -> pt_core::scenes::SceneDef);
+    let cases: [Case; 1] = [("cornell-mesh", scenes::cornell_mesh)];
 
     for (name, make) in cases {
         let params = RenderParams {

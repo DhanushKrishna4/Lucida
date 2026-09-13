@@ -155,7 +155,7 @@ fn spread_of_independent_renders(
     let mut sum = vec![Vec3::ZERO; n];
     let mut sum_sq = vec![Vec3::ZERO; n];
     for k in 0..runs {
-        let mut p = base.clone();
+        let mut p = *base;
         // A distinct stream per run. Without this every run is the same render
         // and the measured spread is exactly zero.
         p.frame_seed = base.frame_seed.wrapping_add(k.wrapping_mul(0x9e37_79b9));

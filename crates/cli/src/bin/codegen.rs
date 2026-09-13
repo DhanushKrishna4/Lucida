@@ -227,7 +227,6 @@ fn layout_ts() -> String {
                 })
                 .collect::<String>()
                 .trim_start_matches('_')
-                .to_string()
         ));
         s.push_str(
             &variants
