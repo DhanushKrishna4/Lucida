@@ -4,6 +4,11 @@ A physically-based Monte Carlo path tracer that runs entirely in WebGPU compute
 shaders. No rendering libraries — the intersection routines, the acceleration
 structure and the light transport are all implemented here.
 
+**[Run it in the browser →](https://dhanushkrishna4.github.io/WebGPU-path-tracer/)**
+Needs a WebGPU-capable browser: Chrome or Edge 113+, Safari 18+, or Firefox 141+.
+There is no fallback renderer, so a browser without it gets an explanation and a
+still image rather than a blank page.
+
 **Status: build steps 1–18 complete.** WebGPU initialisation, a CPU reference
 tracer producing a correct Cornell box, a GPU megakernel that matches it,
 progressive accumulation with tone mapping and interactive camera controls,
