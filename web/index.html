@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebGPU Path Tracer</title>
+    <meta
+      name="description"
+      content="A physically-based Monte Carlo path tracer running in WebGPU compute shaders."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <main id="viewport">
+        <canvas id="canvas" width="512" height="512"></canvas>
+        <div id="overlay" class="stats"></div>
+      </main>
+      <aside id="panel"></aside>
+    </div>
+    <div id="unsupported" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

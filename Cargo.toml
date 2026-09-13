@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/gpu", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+
+[workspace.dependencies]
+pt-core = { path = "crates/core" }
+pt-gpu  = { path = "crates/gpu" }
+glam     = { version = "0.33", features = ["bytemuck"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+wgpu     = "30"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+
+# The CPU reference tracer is unusably slow in a debug build, and it is the
+# oracle for every correctness test. Optimise it even in `cargo test`.
+[profile.dev.package.pt-core]
+opt-level = 3
+[profile.dev.package.glam]
+opt-level = 3

@@ -1,0 +1,9 @@
+/target
+/web/node_modules
+/web/dist
+/out
+*.pfm
+*.ppm
+
+# Editor/tooling scratch
+/.claude

@@ -1,0 +1,10 @@
+[package]
+name = "pt-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+pt-core.workspace = true
+pt-gpu.workspace = true
+glam.workspace = true

@@ -1,0 +1,8 @@
+[package]
+name = "pt-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+glam.workspace = true
+bytemuck.workspace = true
