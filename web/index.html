@@ -10,6 +10,32 @@
     />
     <meta name="theme-color" content="#0b0a09" />
 
+    <!-- Social card. The image is a frame this renderer produced rather than a
+         drawing of one: the same scene, same camera and same seed, split down
+         the middle at 4 samples per pixel and at 2048. The figures on it are
+         the measured errors, not illustrative numbers.
+
+         og:image must be absolute — several scrapers will not resolve a
+         relative one — so unlike every other URL here it cannot come from the
+         build's base path. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:url" content="https://dhanushkrishna4.github.io/Lucida/" />
+    <meta property="og:title" content="Lucida — a path tracer in WebGPU compute shaders" />
+    <meta
+      property="og:description"
+      content="A physically-based Monte Carlo path tracer written from scratch: no rendering libraries, no hardware ray-tracing, all of it in WebGPU compute shaders. Every result is diffed against an independent CPU implementation, so it is checked against something other than how it looks."
+    />
+    <meta property="og:image" content="https://dhanushkrishna4.github.io/Lucida/og-v1.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Lucida: one Cornell box frame split down the middle by a hairline — 4 samples per pixel and visibly grainy on the left, 2048 and fully converged on the right — beside the project name, its test count and its agreement with the CPU reference."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <!-- The same icon the rest of the site uses, served from this project's own
          root rather than relied on as a fallback. A project site lives under
          /Lucida/, so a bare /favicon.ico would resolve to the origin root and
