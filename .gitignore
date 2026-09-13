@@ -7,3 +7,7 @@
 
 # Editor/tooling scratch
 /.claude
+
+# Packed scenes too large to commit. Content-addressed, so the 16-hex suffix
+# distinguishes them from the small assets that DO ship with the site.
+/web/public/scenes/*-????????????????.bin

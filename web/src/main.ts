@@ -20,10 +20,11 @@ import {
   type DiagnosticMode,
   type Tonemap,
 } from './renderer';
-import { OVERSIZED_SCENES, SCENES } from './generated/scenes';
-import { loadScene, type SceneData } from './sceneLoader';
+import { REMOTE_SCENES, SCENES } from './generated/scenes';
+import { loadScene, type SceneData, type SceneProgress } from './sceneLoader';
 import { verifyCameraFixtures } from './camera';
 import { samplesToReach } from './stats';
+import { cacheContents, clearCache } from './assetCache';
 import { length, sub } from './vec3';
 import type { CameraDef } from './generated/scenes';
 import { downloadBlob, encodePFM } from './pfm';
@@ -244,6 +245,21 @@ function buildPanel(
     setAutofocusBox?.(controls.autofocus);
   };
 
+  // --- cached downloads -------------------------------------------------
+  const cacheButton = button('Cached scenes: \u2014', () => {
+    void clearCache().then(refreshCacheButton);
+  });
+  const refreshCacheButton = async (): Promise<void> => {
+    const entries = await cacheContents();
+    const bytes = entries.reduce((a, [, n]) => a + n, 0);
+    cacheButton.textContent =
+      entries.length === 0
+        ? 'Cached scenes: none'
+        : `Clear ${entries.length} cached scene${entries.length === 1 ? '' : 's'} (${(bytes / (1024 * 1024)).toFixed(1)} MB)`;
+    cacheButton.disabled = entries.length === 0;
+  };
+  void refreshCacheButton();
+
   let armed = false;
   const focusLabel = 'Focus on a click';
   const focusButton = button(focusLabel, () => {
@@ -321,12 +337,37 @@ function buildPanel(
       ),
       select(
         'Scene',
-        SCENES.map((sc) => ({ value: sc.name, label: sc.name })),
+        // Remote scenes carry their size in the label. A 27 MB download should
+        // announce itself before the click, not after it.
+        SCENES.map((sc) => ({
+          value: sc.name,
+          label: sc.remote ? `${sc.name} (${sc.remote.megabytes} MB download)` : sc.name,
+        })),
         SCENES[0].name,
         (v) => {
           const manifest = SCENES.find((x) => x.name === v);
           if (!manifest) return;
-          void loadScene(manifest, import.meta.env.BASE_URL)
+          const status = document.getElementById('scene-status');
+          const show = (text: string) => {
+            if (status) {
+              status.textContent = text;
+              status.hidden = text === '';
+            }
+          };
+          const onProgress = (p: SceneProgress) => {
+            if (p.cached) {
+              show('loaded from cache');
+              return;
+            }
+            const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
+            show(
+              p.total > 0
+                ? `downloading ${mb(p.received)} / ${mb(p.total)} MB (${Math.round((p.received / p.total) * 100)}%)`
+                : `downloading ${mb(p.received)} MB`,
+            );
+          };
+          show(manifest.remote ? 'starting download\u2026' : '');
+          void loadScene(manifest, import.meta.env.BASE_URL, onProgress)
             .then((scene: SceneData) => {
               renderer.setScene(scene);
               controls.setCamera(scene.camera);
@@ -336,8 +377,17 @@ function buildPanel(
               syncLens(scene.camera);
               const desc = document.getElementById('scene-description');
               if (desc) desc.textContent = scene.description;
+              show('');
+              void refreshCacheButton();
             })
-            .catch((e) => console.error(`loading scene "${v}":`, e));
+            .catch((e: unknown) => {
+              // A failed 27 MB download is the one scene load a user can
+              // plausibly hit, so it says so in the panel rather than only in
+              // the console.
+              const msg = e instanceof Error ? e.message : String(e);
+              console.error(`loading scene "${v}":`, e);
+              show(`failed: ${msg}`);
+            });
         },
       ),
       select(
@@ -347,16 +397,21 @@ function buildPanel(
         (v) => set({ width: Number(v), height: Number(v) }),
       ),
       Object.assign(note(SCENES[0].description), { id: 'scene-description' }),
-      ...(OVERSIZED_SCENES.length > 0
+      Object.assign(note(''), { id: 'scene-status', hidden: true }),
+      ...(REMOTE_SCENES.length > 0
         ? [
             note(
-              OVERSIZED_SCENES.map((s) => `<code>${s.name}</code> (${s.megabytes} MB)`).join(', ') +
-                ' ' +
-                (OVERSIZED_SCENES.length === 1 ? 'is' : 'are') +
-                ' too large to commit as an asset, so ' +
-                (OVERSIZED_SCENES.length === 1 ? 'it is' : 'they are') +
-                ' available to the CLI and native tests only until the CDN pipeline lands.',
+              REMOTE_SCENES.map((r) => `<code>${r.name}</code> (${r.megabytes} MB)`).join(', ') +
+                (REMOTE_SCENES.length === 1 ? ' is' : ' are') +
+                ' too large to commit, so ' +
+                (REMOTE_SCENES.length === 1 ? 'it is' : 'they are') +
+                ' downloaded on demand and kept in <strong>IndexedDB</strong>. ' +
+                'The filename carries a hash of the contents, which is what makes ' +
+                'the cache correct without an expiry to tune: re-packing a scene ' +
+                'produces a new filename rather than new bytes behind an old one, ' +
+                'so a stale entry can never be served for fresh geometry.',
             ),
+            cacheButton,
           ]
         : []),
     ),

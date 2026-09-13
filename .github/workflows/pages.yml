@@ -49,6 +49,25 @@ jobs:
           PT_BASE: /${{ github.event.repository.name }}/
         run: npm run build
 
+      # Scenes too large to commit. They are not in the repository by design, so
+      # the built site gets them from the release instead — server-side, where
+      # the CORS headers that block a browser fetch of a release asset do not
+      # apply. Publish new ones with:
+      #
+      #   cargo run --release -p pt-cli --bin codegen
+      #   gh release upload scenes web/public/scenes/*-*.bin --clobber
+      - name: Add oversized scene assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view scenes >/dev/null 2>&1; then
+            mkdir -p web/dist/scenes
+            gh release download scenes --dir web/dist/scenes --pattern '*.bin' --clobber
+            ls -l web/dist/scenes
+          else
+            echo "::warning::no 'scenes' release; oversized scenes will 404"
+          fi
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist

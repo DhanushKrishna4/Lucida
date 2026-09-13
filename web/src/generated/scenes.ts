@@ -23,9 +23,13 @@ export interface Section {
 export interface SceneManifest {
   name: string;
   description: string;
-  /** Path relative to the site base. */
+  /** For a local scene, a path under the site base. For a remote one,
+   *  a content-addressed filename under the asset base. */
   asset: string;
   byteLength: number;
+  /** Non-null when the scene is too large to commit and is fetched from
+   *  the CDN and cached in IndexedDB rather than served with the site. */
+  remote: { hash: string; file: string; megabytes: number } | null;
   sections: {
     materials: Section; primitives: Section; lights: Section;
     positions: Section; vertexAttrs: Section; triangles: Section;
@@ -48,6 +52,7 @@ export const SCENES: SceneManifest[] = [
     description: "The reference scene. Diffuse-only, one ceiling area light, five walls with the front face open toward the camera. Colour bleed from the red and green walls (and the blue sphere) onto the neutral floor is the visual signature of correct indirect transport.",
     asset: "scenes/cornell-box.bin",
     byteLength: 1056,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 6 },
       primitives: { byteOffset: 480, count: 8 },
@@ -70,6 +75,7 @@ export const SCENES: SceneManifest[] = [
     description: "Dielectrics: a clear sphere, a diamond-IOR sphere showing total internal reflection, a frosted sphere, and a tinted pane. The inverted image through the clear sphere and the caustics on the floor are what a correct refraction looks like; a sign error in the half-vector produces glass that is merely shiny.",
     asset: "scenes/glass-box.bin",
     byteLength: 1344,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 8 },
       primitives: { byteOffset: 640, count: 10 },
@@ -92,6 +98,7 @@ export const SCENES: SceneManifest[] = [
     description: "Lit entirely by an environment map — no area lights. A low sun about four orders of magnitude brighter than the sky around it, over a diffuse sphere, a near-mirror, and a glass ball. The diffuse sphere converges quickly; the speckle around the specular pair is caustic noise, which a plain path tracer samples poorly however good the sky sampler is.",
     asset: "scenes/sunset.bin",
     byteLength: 657476,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 4 },
       primitives: { byteOffset: 320, count: 4 },
@@ -114,6 +121,7 @@ export const SCENES: SceneManifest[] = [
     description: "Forty-nine copies of one icosphere, stored once. The scene's geometry is a single mesh plus forty-nine transforms, and its acceleration structure is one BLAS under a small TLAS. Rotation and non-uniform scale throughout, because a grid of translated copies would exercise none of the maths that can go wrong.",
     asset: "scenes/instance-forest.bin",
     byteLength: 685652,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 3 },
       primitives: { byteOffset: 240, count: 50 },
@@ -136,6 +144,7 @@ export const SCENES: SceneManifest[] = [
     description: "The same Cornell box built entirely from triangles, traversed through a SAH BVH. The walls are geometrically identical to the analytic version, so the two must converge to the same image — which is how the mesh path and the BVH get validated.",
     asset: "scenes/cornell-mesh.bin",
     byteLength: 769024,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 6 },
       primitives: { byteOffset: 480, count: 0 },
@@ -158,6 +167,7 @@ export const SCENES: SceneManifest[] = [
     description: "Glossy plates of increasing roughness lit by emitters of increasing size and equal power. BSDF sampling finds the small bright emitter only by luck; light sampling scatters samples across the large dim one that a near-mirror then evaluates at almost zero. Multiple importance sampling beats both.",
     asset: "scenes/mis-scene.bin",
     byteLength: 1552,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 9 },
       primitives: { byteOffset: 720, count: 9 },
@@ -180,6 +190,7 @@ export const SCENES: SceneManifest[] = [
     description: "Copper (front) and gold (back), roughness increasing left to right, using measured complex index of refraction rather than Schlick. The rough end reads paler because a wide lobe averages Fresnel over grazing angles where every metal goes white; multiple-scattering compensation is what stops it also going dark.",
     asset: "scenes/metal-sweep.bin",
     byteLength: 1872,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 13 },
       primitives: { byteOffset: 1040, count: 13 },
@@ -202,6 +213,7 @@ export const SCENES: SceneManifest[] = [
     description: "Five spheres, roughness 0 to 1, pure white non-absorbing BSDF, in a uniform environment of radiance 1. A correct energy-conserving BSDF renders them completely invisible. Any sphere you can see is energy the BSDF destroyed or invented.",
     asset: "scenes/furnace-test.bin",
     byteLength: 720,
+    remote: null,
     sections: {
       materials: { byteOffset: 0, count: 5 },
       primitives: { byteOffset: 400, count: 5 },
@@ -219,12 +231,51 @@ export const SCENES: SceneManifest[] = [
     background: [1, 1, 1],
     camera: { eye: [0, 0.8, -12], lookAt: [0, 0, 0], up: [0, 1, 0], vfovDeg: 45, aperture: 0, focusDistance: 12.026637 },
   },
+  {
+    name: "bvh-stress",
+    description: "72 geodesic spheres, about 369 thousand triangles, inside the Cornell box. Built to make acceleration structure quality the limiting factor rather than shading.",
+    asset: "scenes/bvh-stress-5164eca50f3f3003.bin",
+    byteLength: 27480192,
+    remote: { hash: "5164eca50f3f3003", file: "bvh-stress-5164eca50f3f3003.bin", megabytes: 26.2 },
+    sections: {
+      materials: { byteOffset: 0, count: 6 },
+      primitives: { byteOffset: 480, count: 6 },
+      lights: { byteOffset: 864, count: 1 },
+      positions: { byteOffset: 928, count: 184464 },
+      vertexAttrs: { byteOffset: 2952352, count: 184464 },
+      triangles: { byteOffset: 8855200, count: 368640 },
+      bvhNodes: { byteOffset: 14753440, count: 397711 },
+      envRadiance: { byteOffset: 27480192, count: 0 },
+      envCdf: { byteOffset: 27480192, count: 0 },
+    },
+    depthScale: 1410.4904,
+    instancing: { count: 0, analyticPrimitives: 6, tlasRoot: 0 },
+    env: { width: 0, height: 0, totalWeight: 0 },
+    background: [0, 0, 0],
+    camera: { eye: [278, 278, -800], lookAt: [278, 278, 0], up: [0, 1, 0], vfovDeg: 37, aperture: 0, focusDistance: 800 },
+  },
 ];
 
-/** Scenes too large to ship as a committed asset; CLI and native tests only. */
-export const OVERSIZED_SCENES: { name: string; megabytes: number }[] = [
+/** Scenes fetched from the asset host rather than served with the site.
+ *  Too large to commit, so they are downloaded once and cached in
+ *  IndexedDB. Same entries as `SCENES.filter(s => s.remote)`, kept
+ *  separately so the UI can talk about them without a scan. */
+export const REMOTE_SCENES: { name: string; megabytes: number }[] = [
   { name: "bvh-stress", megabytes: 26.2 },
 ];
+
+/** Element sizes inside a packed scene asset. */
+export const SCENE_STRIDE = {
+  materials: 80,
+  primitives: 64,
+  lights: 64,
+  positions: 16,
+  vertexAttrs: 32,
+  triangles: 16,
+  bvhNodes: 32,
+  envRadiance: 16,
+  envCdf: 4,
+} as const;
 
 /** Rust's camera resolution for a spread of configurations. `camera.ts`
  *  checks its own implementation against these at startup — this is the

@@ -3,3 +3,6 @@ declare module '*.wgsl' {
   const source: string;
   export default source;
 }
+
+/** Injected by `vite.config.ts`: base URL for scenes fetched from the CDN. */
+declare const __ASSET_BASE__: string;

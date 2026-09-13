@@ -85,9 +85,10 @@ mirrors:
 Scene geometry reaches the browser as a single pre-packed binary per scene — every
 array concatenated at 16-byte alignment, with offsets generated alongside — so no
 TypeScript code lays out a scene struct and none can get it wrong. Scenes above
-2 MB packed stay CLI-only until the CDN pipeline lands; the threshold is checked
-rather than hardcoded, so a scene that grows past it drops out automatically
-instead of silently bloating the deploy. The only hand-written packing on
+2 MB packed are **not committed** — they are downloaded on demand and cached in
+IndexedDB; see below. The threshold is checked rather than hardcoded, so a scene
+that grows past it drops out of the repository automatically instead of silently
+bloating it. The only hand-written packing on
 the host is the uniform block, whose offsets are generated. `cargo run -p pt-cli
 --bin codegen -- --check` fails if any mirror is stale.
 
@@ -1081,6 +1082,58 @@ The heatmap is checked against an independent fact rather than against itself:
 the linear BVH is a measurably worse tree than the binned-SAH one, so the same
 scene rendered with each must show the difference. Measured, **12.5 against 14.4
 node visits per ray** — the 1.15x the cost model predicts.
+
+## Large scene assets: not committed, cached in IndexedDB
+
+`bvh-stress` packs to **27 MB**. Committing it would charge every clone, every CI
+run and every deploy for a file most visitors never open — and git keeps it
+forever, so a later re-pack adds a second copy rather than replacing the first.
+
+Codegen keeps anything over 2 MB out of the repository and writes it under a
+**content-addressed** name (`bvh-stress-5164eca50f3f3003.bin`), which
+`.gitignore` excludes by pattern. The browser downloads it once, with progress,
+and stores it in IndexedDB.
+
+The content-addressed filename is what makes the cache correct, and it does the
+job on its own. Re-packing a scene produces a *new* filename rather than new
+bytes behind an old one, so a stale entry can never be served for fresh
+geometry — there is no expiry to tune and no cache version to remember to bump.
+The key is the filename rather than the URL, so moving the asset to a different
+host does not orphan a copy someone already has. Measured: second page load
+issues **zero** network requests for the blob and reads all 27 MB back from
+IndexedDB.
+
+The hash is a cache key and a truncation check, not a security measure, and the
+loader deliberately does **not** recompute it. Authenticity comes from TLS;
+truncation — the failure that actually happens — is caught by the byte-length
+check, which matters because a short read produces garbage geometry that renders
+as noise rather than as an error. Verifying a 64-bit FNV-1a over 27 MB in
+JavaScript would need 32-bit limb arithmetic (BigInt is far too slow at that
+size) to catch nothing the cheaper checks miss.
+
+### Why not GitHub release assets
+
+That was the first design, and it is wrong. Release assets are the obvious place
+for a large file that should not be committed — but `github.com/.../releases/
+download/...` serves **no `access-control-allow-origin` header**, so a browser
+`fetch` of one fails with an opaque `TypeError: Failed to fetch`. Confirmed by
+actually issuing the cross-origin request, after `curl -I` showed the missing
+header, rather than discovering it after a deploy.
+
+So the release is still where the blob is *published* — it stays out of git —
+but the **Pages workflow pulls it into the built site server-side**, where CORS
+does not apply. The asset is then same-origin and CDN-backed like everything else
+Pages serves, and the IndexedDB cache is still doing the work that matters:
+saving a 27 MB download on every repeat visit.
+
+The mechanism stays host-agnostic. `PT_ASSET_BASE` at build time points the
+loader at any CDN that sends CORS headers; empty, the default, means "alongside
+the site".
+
+```bash
+cargo run --release -p pt-cli --bin codegen
+gh release upload scenes web/public/scenes/*-*.bin --clobber
+```
 
 ## The interface, and a convergence readout that is measured
 

@@ -13,8 +13,8 @@
 
 use pt_core::camera::Camera;
 use pt_core::gpu_layout::{
-    GpuDispatchArgs, GpuHitRecord, GpuLight, GpuMaterial, GpuPathState, GpuPrimitive,
-    GpuShadowRay, GpuUniforms, GpuWavefrontCounters, WGSL_STRUCTS,
+    GpuBvhNode, GpuDispatchArgs, GpuHitRecord, GpuLight, GpuMaterial, GpuPathState, GpuPrimitive,
+    GpuShadowRay, GpuTriangle, GpuUniforms, GpuVertexAttr, GpuWavefrontCounters, WGSL_STRUCTS,
 };
 
 use glam::Vec3;
@@ -292,6 +292,28 @@ fn layout_ts() -> String {
     s
 }
 
+/// 64-bit FNV-1a over a packed scene, as lower-case hex.
+///
+/// This is a **cache key and a corruption check**, not a security measure, and
+/// the distinction is worth being explicit about. Authenticity of the download
+/// comes from TLS; what this catches is a truncated or half-written transfer,
+/// and a scene whose contents changed while its name did not — which is the
+/// case that would otherwise leave a stale 26 MB blob in a user's IndexedDB
+/// forever.
+///
+/// FNV-1a rather than SHA-256 because SHA-256 would be either a new dependency
+/// or eighty lines of hand-rolled compression function, and neither buys
+/// anything here: a 64-bit digest over a handful of assets has a collision
+/// probability far below the odds of the rest of the pipeline being wrong.
+fn content_hash(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
 /// Largest packed scene that is shipped to the browser as a committed asset.
 ///
 /// The BVH stress scene is about 10 MB packed, which has no business in a git
@@ -476,9 +498,13 @@ fn scenes_ts(root: &Path) -> Result<String, String> {
          export interface SceneManifest {\n\
          \x20 name: string;\n\
          \x20 description: string;\n\
-         \x20 /** Path relative to the site base. */\n\
+         \x20 /** For a local scene, a path under the site base. For a remote one,\n\
+         \x20  *  a content-addressed filename under the asset base. */\n\
          \x20 asset: string;\n\
          \x20 byteLength: number;\n\
+         \x20 /** Non-null when the scene is too large to commit and is fetched from\n\
+         \x20  *  the CDN and cached in IndexedDB rather than served with the site. */\n\
+         \x20 remote: { hash: string; file: string; megabytes: number } | null;\n\
          \x20 sections: {\n\
          \x20   materials: Section; primitives: Section; lights: Section;\n\
          \x20   positions: Section; vertexAttrs: Section; triangles: Section;\n\
@@ -501,11 +527,27 @@ fn scenes_ts(root: &Path) -> Result<String, String> {
 
     for def in scenes::all() {
         let packed = pack_scene(&def);
-        if packed.bytes.len() > MAX_BROWSER_SCENE_BYTES {
+        let remote = packed.bytes.len() > MAX_BROWSER_SCENE_BYTES;
+        let hash = content_hash(&packed.bytes);
+
+        // Content-addressed when remote, so publishing a changed scene adds a
+        // file rather than replacing one — every cached copy stays valid and
+        // every manifest keeps pointing at the bytes it was generated against.
+        // Remote blobs land beside the committed ones but under a
+        // content-addressed name, which `.gitignore` excludes by pattern. So
+        // they exist for `npm run dev` and for a local `vite build`, and never
+        // enter the repository — the Pages workflow pulls them from the release
+        // into the built site instead.
+        let basename = if remote {
+            format!("{}-{}.bin", def.name, hash)
+        } else {
+            format!("{}.bin", def.name)
+        };
+        let file = asset_dir.join(&basename);
+        let asset = format!("scenes/{basename}");
+        if remote {
             excluded.push((def.name.to_string(), packed.bytes.len()));
-            continue;
         }
-        let file = asset_dir.join(format!("{}.bin", def.name));
         // Only rewrite when the content changes, so `--check` and incremental
         // builds do not churn.
         if std::fs::read(&file).ok().as_deref() != Some(packed.bytes.as_slice()) {
@@ -515,11 +557,21 @@ fn scenes_ts(root: &Path) -> Result<String, String> {
 
         let c = &def.camera;
         entries.push_str(&format!(
-            "  {{\n    name: {:?},\n    description: {:?},\n    asset: {:?},\n    byteLength: {},\n    sections: {{\n",
+            "  {{\n    name: {:?},\n    description: {:?},\n    asset: {:?},\n    byteLength: {},\n    remote: {},\n    sections: {{\n",
             def.name,
             def.description,
-            format!("scenes/{}.bin", def.name),
-            packed.bytes.len()
+            asset,
+            packed.bytes.len(),
+            if remote {
+                format!(
+                    "{{ hash: {:?}, file: {:?}, megabytes: {:.1} }}",
+                    hash,
+                    basename,
+                    packed.bytes.len() as f64 / (1024.0 * 1024.0)
+                )
+            } else {
+                "null".to_string()
+            }
         ));
         for (name, offset, count) in &packed.sections {
             entries.push_str(&format!(
@@ -548,8 +600,11 @@ fn scenes_ts(root: &Path) -> Result<String, String> {
     s.push_str("];\n\n");
 
     s.push_str(
-        "/** Scenes too large to ship as a committed asset; CLI and native tests only. */\n\
-         export const OVERSIZED_SCENES: { name: string; megabytes: number }[] = [\n",
+        "/** Scenes fetched from the asset host rather than served with the site.\n\
+         \x20*  Too large to commit, so they are downloaded once and cached in\n\
+         \x20*  IndexedDB. Same entries as `SCENES.filter(s => s.remote)`, kept\n\
+         \x20*  separately so the UI can talk about them without a scan. */\n\
+         export const REMOTE_SCENES: { name: string; megabytes: number }[] = [\n",
     );
     for (name, bytes) in &excluded {
         s.push_str(&format!(
@@ -558,6 +613,28 @@ fn scenes_ts(root: &Path) -> Result<String, String> {
         ));
     }
     s.push_str("];\n\n");
+
+    // Strides for slicing a packed asset, so `sceneLoader.ts` stops carrying its
+    // own copy of them. The wavefront's path-state stride was a literal under a
+    // comment naming this file as the source of truth, and it silently drifted
+    // by 32 bytes for two build steps.
+    s.push_str("/** Element sizes inside a packed scene asset. */\nexport const SCENE_STRIDE = {\n");
+    for (name, stride) in [
+        ("materials", size_of::<GpuMaterial>()),
+        ("primitives", size_of::<GpuPrimitive>()),
+        ("lights", size_of::<GpuLight>()),
+        ("positions", 16),
+        ("vertexAttrs", size_of::<GpuVertexAttr>()),
+        ("triangles", size_of::<GpuTriangle>()),
+        ("bvhNodes", size_of::<GpuBvhNode>()),
+        // Format-defined rather than struct-defined: rgba32float radiance, and
+        // r32float for the packed CDF rectangle.
+        ("envRadiance", 16),
+        ("envCdf", 4),
+    ] {
+        s.push_str(&format!("  {name}: {stride},\n"));
+    }
+    s.push_str("} as const;\n\n");
 
     // The camera basis is the one piece of renderer math the TypeScript host
     // must reimplement, because orbit controls need it live. These fixtures are
