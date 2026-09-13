@@ -34,16 +34,31 @@ import resetSource from '../../shaders/wavefront/reset.wgsl';
 import resolveSource from '../../shaders/wavefront/resolve.wgsl';
 
 import { captureErrors, createShaderModule } from './webgpu';
+import {
+  DISPATCH_ARGS_SIZE,
+  HIT_RECORD_SIZE,
+  PATH_STATE_SIZE,
+  SHADOW_RAY_SIZE,
+  WAVEFRONT_COUNTERS_SIZE,
+} from './generated/layout';
 
 /** Must match `@workgroup_size` in every wavefront kernel. */
 const WORKGROUP = 64;
 
-/** Sizes from `crates/core/src/gpu_layout.rs`, which is the source of truth. */
-const PATH_STATE_BYTES = 80;
-const HIT_RECORD_BYTES = 64;
-const SHADOW_RAY_BYTES = 48;
-const COUNTERS_BYTES = 16;
-const DISPATCH_ARGS_BYTES = 32;
+// Strides for the per-path buffers, generated from `crates/core/src/gpu_layout.rs`.
+//
+// These used to be literals under a comment naming that file as the source of
+// truth, which reads as generated and drifts like a copy. `PathState` grew from
+// 80 to 112 bytes when the denoiser's guide channels moved into it and the
+// literal stayed at 80, so this allocated 71% of the pool the shader indexed —
+// silently, because WGSL clamps an out-of-bounds index rather than faulting, so
+// paths collided on the last valid slot. The browser's wavefront then differed
+// from its own megakernel by 446% while still looking like a noisy render.
+const PATH_STATE_BYTES = PATH_STATE_SIZE;
+const HIT_RECORD_BYTES = HIT_RECORD_SIZE;
+const SHADOW_RAY_BYTES = SHADOW_RAY_SIZE;
+const COUNTERS_BYTES = WAVEFRONT_COUNTERS_SIZE;
+const DISPATCH_ARGS_BYTES = DISPATCH_ARGS_SIZE;
 
 /**
  * Base path-pool budget, scaled by the depth limit.

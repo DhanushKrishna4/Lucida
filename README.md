@@ -9,7 +9,7 @@ Needs a WebGPU-capable browser: Chrome or Edge 113+, Safari 18+, or Firefox 141+
 There is no fallback renderer, so a browser without it gets an explanation and a
 still image rather than a blank page.
 
-**Status: build steps 1–18 complete.** WebGPU initialisation, a CPU reference
+**Status: all 19 build steps complete.** WebGPU initialisation, a CPU reference
 tracer producing a correct Cornell box, a GPU megakernel that matches it,
 progressive accumulation with tone mapping and interactive camera controls,
 triangle meshes traversed through a binned-SAH BVH, a GGX microfacet BSDF that
@@ -25,7 +25,8 @@ internal reflection, and light sampling that works through glass), **environment
 hierarchy, an **edge-avoiding à-trous denoiser**, **diagnostic render
 modes**, and a full control panel with depth of field and a **measured**
 convergence readout — per-pixel variance reduced on the GPU, validated against
-the spread of sixteen independent renders rather than modelled as `1/sqrt(N)`.
+the spread of sixteen independent renders rather than modelled as `1/sqrt(N)` —
+deployed to GitHub Pages from source on every push.
 
 <img src="web/public/preview.png" width="420" alt="Cornell box: red wall left, green right, two diffuse spheres lit by a ceiling area light">
 
@@ -1199,10 +1200,11 @@ of magnitude. Dollying re-focuses on the orbit target by default and stops the
 moment a focus distance is set by hand — the two behaviours are both right and
 cannot coexist, so it is a checkbox rather than a guess.
 
-### Two stride bugs the widening flushed out
+### Three stride bugs, and why only one of them was loud
 
 Growing `Accum` from 48 to 64 bytes broke two places that had written the stride
-as a literal, and the two failed in opposite ways.
+as a literal, and the two failed in opposite ways. A later audit found a third
+that had been broken for two build steps.
 
 The browser's `readbackHDR` sized its staging buffer from the generated
 `ACCUM_BYTES_PER_PIXEL` and then walked it with a **hardcoded stride of 4
@@ -1221,6 +1223,42 @@ The difference between the two is the whole argument for the generated-layout
 approach. A buffer **sized** from the struct and **indexed** by a literal is the
 worst of both: it is the only combination that stays silent. Both now derive the
 stride from the same place the struct does.
+
+The third was the worst of the lot, and it was found by going looking rather than
+by anything failing. `web/src/wavefront.ts` declared its per-path buffer strides
+as literals under the comment *"Sizes from `crates/core/src/gpu_layout.rs`, which
+is the source of truth"* — which reads as generated and drifts like a copy.
+`PathState` grew from 80 to 112 bytes at step 16, when the denoiser's guide
+channels moved into it (SHADE cannot reach the accumulation buffer; it already
+binds the eight storage buffers WebGPU guarantees, so the guides have to ride to
+RESOLVE inside the path state). The literal stayed at 80.
+
+So the browser allocated **71% of the path pool it then indexed**. Nothing
+faulted: WGSL clamps an out-of-bounds index rather than trapping, so the
+overflowing paths piled onto the last valid slot and overwrote each other. The
+result still looked like a path-traced Cornell box, still converged, still
+reported a sensible noise figure — and differed from its own megakernel by
+
+```text
+              before          after
+mean rel      4.46            1.57e-8
+max  rel      2.14e+3         2.56e-7
+energy ratio  —               1.000000
+```
+
+**446% wrong, in the architecture the browser offers as a toggle.** The native
+suite compares the two architectures on six scenes and holds them to 8e-9, and it
+passed throughout: it builds its buffers with `size_of::<GpuPathState>()`, so the
+bug could not exist on that side of the fence. The browser has no test runner, so
+nothing compared them there.
+
+Two things were worth taking from it. The strides are now **emitted by codegen**
+alongside the others, so `codegen --check` fails on the next drift — verified by
+breaking the constant on purpose and watching the check catch it, because a guard
+nobody has seen fail is not yet a guard. And the convergence readout did **not**
+notice: it measures how noisy an image is, not whether it is the right image, and
+a scrambled render is just as capable of being smooth. A statistic that looks
+healthy on broken output is worth knowing the shape of.
 
 ## What is deliberately absent
 

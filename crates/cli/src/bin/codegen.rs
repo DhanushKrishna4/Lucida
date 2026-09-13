@@ -12,7 +12,10 @@
 //! a way no test at the image level can localise.
 
 use pt_core::camera::Camera;
-use pt_core::gpu_layout::{GpuLight, GpuMaterial, GpuPrimitive, GpuUniforms, WGSL_STRUCTS};
+use pt_core::gpu_layout::{
+    GpuDispatchArgs, GpuHitRecord, GpuLight, GpuMaterial, GpuPathState, GpuPrimitive,
+    GpuShadowRay, GpuUniforms, GpuWavefrontCounters, WGSL_STRUCTS,
+};
 
 use glam::Vec3;
 use pt_core::scenes;
@@ -148,6 +151,32 @@ fn layout_ts() -> String {
         size_of::<GpuPrimitive>(),
         size_of::<GpuLight>(),
         size_of::<GpuUniforms>()
+    ));
+
+    // The wavefront's per-path buffers.
+    //
+    // These were literals in `web/src/wavefront.ts` under a comment naming this
+    // file as the source of truth, which is the worst of both worlds: it reads
+    // as generated and drifts like a copy. `GpuPathState` grew from 80 to 112
+    // bytes when the denoiser's guide channels moved into it, the literal stayed
+    // at 80, and the browser's wavefront then allocated 71% of the path pool it
+    // indexed. It did not fail loudly — WGSL clamps an out-of-bounds index, so
+    // paths collided on the last valid slot and the renderer produced a noisy
+    // image that was simply wrong, differing from its own megakernel by 446%.
+    //
+    // Emitted here so `codegen --check` fails the next time one of them grows.
+    s.push_str(&format!(
+        "// The wavefront's per-path buffer strides.\n\
+         export const PATH_STATE_SIZE = {};\n\
+         export const HIT_RECORD_SIZE = {};\n\
+         export const SHADOW_RAY_SIZE = {};\n\
+         export const WAVEFRONT_COUNTERS_SIZE = {};\n\
+         export const DISPATCH_ARGS_SIZE = {};\n\n",
+        size_of::<GpuPathState>(),
+        size_of::<GpuHitRecord>(),
+        size_of::<GpuShadowRay>(),
+        size_of::<GpuWavefrontCounters>(),
+        size_of::<GpuDispatchArgs>()
     ));
 
     s.push_str("export const UNIFORM_OFFSET = {\n");

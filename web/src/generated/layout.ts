@@ -9,6 +9,13 @@ export const PRIMITIVE_SIZE = 64;
 export const LIGHT_SIZE = 64;
 export const UNIFORMS_SIZE = 160;
 
+// The wavefront's per-path buffer strides.
+export const PATH_STATE_SIZE = 112;
+export const HIT_RECORD_SIZE = 64;
+export const SHADOW_RAY_SIZE = 48;
+export const WAVEFRONT_COUNTERS_SIZE = 16;
+export const DISPATCH_ARGS_SIZE = 32;
+
 export const UNIFORM_OFFSET = {
   camOrigin: 0,
   lensRadius: 12,
