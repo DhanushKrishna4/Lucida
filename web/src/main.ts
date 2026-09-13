@@ -99,6 +99,8 @@ async function main(): Promise<void> {
     onInteracting: (active) => renderer.setInteracting(active),
   });
 
+  revealOnScroll();
+
   buildPanel(
     panel,
     canvas,
@@ -107,6 +109,8 @@ async function main(): Promise<void> {
     info.description || `${info.vendor} ${info.architecture}`,
     cameraProblems,
   );
+
+  makeNotesFoldable(panel);
 
   // Expose the renderer for console poking during development.
   if (import.meta.env.DEV) {
@@ -120,8 +124,11 @@ async function main(): Promise<void> {
   try {
     for (;;) {
       await new Promise((r) => requestAnimationFrame(r));
-      renderer.renderFrame();
+      const added = renderer.renderFrame();
       await renderer.waitForGpu();
+      // The registration marks warm while the estimate is still moving, so the
+      // frame itself reports the state without another label.
+      document.body.classList.toggle('is-converging', added > 0);
       overlay.innerHTML = formatStats(renderer, info);
     }
   } catch (e) {
@@ -150,67 +157,106 @@ function formatStats(renderer: Renderer, info: { vendor: string; hasTimestampQue
   const s = renderer.getStats();
   const set = renderer.getSettings();
   const geo = renderer.getScene();
-  const res =
-    s.scale === 1
-      ? `${s.renderWidth}x${s.renderHeight}`
-      : `${s.renderWidth}x${s.renderHeight} (1/${s.scale})`;
-  const mrays = s.maxRaysPerSecond / 1e6;
-  const mib = s.gpuBytes / (1024 * 1024);
-  const row = (k: string, v: string) => `${k.padEnd(11)} <b>${v}</b>`;
 
-  // Progressive feedback. The sample counter alone answers "is it still going";
-  // these answer "is it there yet", which is the question anyone watching a path
-  // tracer actually has.
-  const progress: string[] = [];
-  if (s.samples > 0 && s.accumMs > 0) {
-    progress.push(row('elapsed', formatDuration(s.accumMs)));
-    // Remaining time extrapolates from the rate this render has actually
-    // sustained, not from a nominal frame time — adaptive resolution and the
-    // wavefront's batching both make those differ by a lot.
+  // `live` marks a measurement that is still moving. Amber is reserved for those
+  // two, so a glance at the strip says what is being computed right now without
+  // reading a word of it.
+  const cells: string[] = [];
+  const cell = (k: string, v: string, cls = 'dim') =>
+    cells.push(`<div class="cell ${cls}"><span class="k">${k}</span><b class="v">${v}</b></div>`);
+
+  cell('samples', String(s.samples) + (set.targetSamples > 0 ? ` / ${set.targetSamples}` : ''), 'live');
+
+  if (s.convergence > 0) {
+    const pct = s.convergence * 100;
+    cell('noise', `${pct < 1 ? pct.toFixed(2) : pct.toFixed(1)}%`, 'live');
+    const more = samplesToReach(s.convergence, s.samples, QUALITY_TARGET);
+    if (more > 0) cell('to 1%', `+${formatCount(more)}`);
+  } else {
+    // A dash, not a zero: nothing measurable yet is not the same as no error.
+    cell('noise', '\u2014', 'live');
+  }
+
+  if (s.accumMs > 0) {
+    cell('elapsed', formatDuration(s.accumMs));
     if (set.targetSamples > 0 && s.samples < set.targetSamples) {
-      const perSample = s.accumMs / s.samples;
-      progress.push(row('remaining', '~' + formatDuration(perSample * (set.targetSamples - s.samples))));
+      cell('left', '~' + formatDuration((s.accumMs / s.samples) * (set.targetSamples - s.samples)));
     }
   }
-  if (s.convergence > 0) {
-    // Shown as a percentage because it is a *relative* error: 5% means the
-    // typical pixel's estimate is within about 5% of where it will settle.
-    const pct = s.convergence * 100;
-    progress.push(row('noise', `${pct < 1 ? pct.toFixed(2) : pct.toFixed(1)}% err`));
-    const more = samplesToReach(s.convergence, s.samples, QUALITY_TARGET);
-    if (more > 0) progress.push(row('to 1%', `+${formatCount(more)} spp`));
-  } else if (s.samples >= 2) {
-    // The meter has run but found nothing bright enough to measure — an all-dark
-    // frame, or a diagnostic mode. Say so rather than showing a stale number.
-    progress.push(row('noise', '\u2014'));
+
+  cell('frame', `${s.avgFrameMs.toFixed(1)} ms`);
+  const mrays = s.maxRaysPerSecond / 1e6;
+  // Prefixed with the bound symbol because it assumes every path runs to the
+  // full bounce limit; see Stats.maxRaysPerSecond.
+  cell('rays/s', '\u2264' + (mrays >= 1 ? `${mrays.toFixed(0)}M` : `${(s.maxRaysPerSecond / 1e3).toFixed(0)}K`));
+
+  if (set.targetSamples > 0) {
+    const pct = Math.min(100, (s.samples / set.targetSamples) * 100);
+    cells.push(`<div class="bar"><span style="width:${pct.toFixed(1)}%"></span></div>`);
   }
 
-  const bar =
-    set.targetSamples > 0
-      ? `<span class="bar"><span style="width:${Math.min(100, (s.samples / set.targetSamples) * 100).toFixed(1)}%"></span></span>`
-      : '';
-
-  return [
-    row('samples', String(s.samples) + (set.targetSamples > 0 ? ` / ${set.targetSamples}` : '')),
-    ...progress,
-    row('render', res),
-    row('geometry', geo.numTriangles > 0 ? `${geo.numTriangles.toLocaleString()} tris` : 'analytic'),
-    row('lights', `${geo.numLights}`),
+  // The standing facts sit under the rule, away from the moving ones.
+  const facts = [
+    s.scale === 1 ? `${s.renderWidth}\u00d7${s.renderHeight}` : `${s.renderWidth}\u00d7${s.renderHeight} (1/${s.scale})`,
+    geo.numTriangles > 0 ? `${geo.numTriangles.toLocaleString()} tris` : 'analytic',
     ...(geo.numTriangles > 0
-      ? [row('bvh', renderer.isBvhEnabled() ? `${geo.numBvhNodes.toLocaleString()} nodes` : 'OFF')]
+      ? [renderer.isBvhEnabled() ? `${geo.numBvhNodes.toLocaleString()} bvh nodes` : 'bvh off']
       : []),
-    row('frame', `${s.avgFrameMs.toFixed(1)} ms`),
-    // Prefixed with the bound symbol because it assumes every path runs to the
-    // full bounce limit; see Stats.maxRaysPerSecond.
-    row('rays/s', '\u2264 ' + (mrays >= 1 ? `${mrays.toFixed(0)} M` : `${(s.maxRaysPerSecond / 1e3).toFixed(0)} K`)),
-    row('gpu mem', `${mib.toFixed(1)} MiB`),
-    row('device', info.vendor),
-    // Say so explicitly rather than silently reporting a different kind of
-    // number than the reader expects.
-    `<span style="opacity:.6">timing: CPU-side${info.hasTimestampQuery ? '' : ' (no timestamp-query)'}</span>`,
-    ...(bar ? [bar] : []),
-  ].join('\n');
+    `${geo.numLights} light${geo.numLights === 1 ? '' : 's'}`,
+    `${(s.gpuBytes / (1024 * 1024)).toFixed(1)} MiB`,
+    info.vendor,
+    // Say which kind of timing this is rather than letting the two be confused.
+    `CPU-side timing${info.hasTimestampQuery ? '' : ', no timestamp-query'}`,
+  ];
+  cells.push(`<div class="sub">${facts.join('&nbsp;&nbsp;\u00b7&nbsp;&nbsp;')}</div>`);
+
+  return cells.join('');
 }
+
+/**
+ * Fold the panel's explanatory notes until asked for.
+ *
+ * There is a great deal of genuine explanation in the panel and none of it
+ * should compete with the control it annotates — but deleting it would lose the
+ * part that makes the controls worth having.
+ */
+function makeNotesFoldable(panel: HTMLElement): void {
+  for (const n of panel.querySelectorAll<HTMLElement>('.note')) {
+    // The scene description is what the reader is looking at, not a note about
+    // it, so it always stays open. Short notes are already glanceable and
+    // folding them would add a click for nothing.
+    if (n.id === 'scene-description') continue;
+    if (n.textContent && n.textContent.length < 210) continue;
+    n.classList.add('foldable', 'folded');
+    n.title = 'Click to expand';
+    n.addEventListener('click', () => {
+      n.classList.toggle('folded');
+      n.title = n.classList.contains('folded') ? 'Click to expand' : 'Click to collapse';
+    });
+  }
+}
+
+/** Reveal each essay band as it arrives, which suits a page about convergence. */
+function revealOnScroll(): void {
+  const bands = document.querySelectorAll('.band');
+  if (!('IntersectionObserver' in window)) {
+    bands.forEach((b) => b.classList.add('seen'));
+    return;
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          e.target.classList.add('seen');
+          io.unobserve(e.target);
+        }
+      }
+    },
+    { rootMargin: '0px 0px -12% 0px' },
+  );
+  bands.forEach((b) => io.observe(b));
+}
+
 
 function buildPanel(
   panel: HTMLElement,

@@ -172,6 +172,14 @@ export class Controls {
   };
 
   private onWheel = (e: WheelEvent): void => {
+    // The canvas fills the hero, and the page has a great deal to read below
+    // it. Swallowing every wheel event would trap a reader whose cursor happens
+    // to be over the render — which is most of the screen — so a plain wheel
+    // scrolls the page and only a modifier dollies.
+    //
+    // Alt rather than Ctrl or Shift: Ctrl-wheel is the browser's own zoom and
+    // Shift-wheel is horizontal scroll, so both are already spoken for.
+    if (!e.altKey) return;
     e.preventDefault();
     // Exponential dolly: each notch is a fixed *ratio*, so zooming feels the
     // same whether you are 1 unit or 1000 units from the subject. A linear step

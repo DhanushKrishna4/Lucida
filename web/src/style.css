@@ -1,173 +1,1009 @@
+/* ============================================================================
+   Path tracer — visual identity
+   ----------------------------------------------------------------------------
+   The subject is light, so the language is photographic: a warm carbon ground
+   rather than a blue-black one, tungsten amber as the only accent (the colour
+   of the Cornell box's own area light), and the render presented as a frame of
+   film held in a gate. The project's own vocabulary agrees — it has a `Film`
+   type, exposure in EV, and tone curves named after film stocks.
+
+   Amber is rationed. It marks exactly three things: a live measurement, the
+   section a reader is being pointed at, and the control under the cursor.
+   Everywhere else the page is monochrome, so the render is the only real colour
+   on screen — which is the correct hierarchy for a renderer.
+   ========================================================================== */
+
 :root {
-  color-scheme: dark;
-  --bg: #0e1013;
-  --panel: #16191e;
-  --line: #262b33;
-  --text: #dfe3ea;
-  --muted: #8b93a1;
-  --accent: #5fa8ff;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ground: #0b0a09;
+  --ground-2: #100e0c;
+  --surface: #131110;
+  --surface-2: #191614;
+  --line: #2b2521;
+  --line-soft: #1e1a17;
+
+  --ink: #f4efe6;
+  --ink-2: #aba196;
+  --ink-3: #776e65;
+
+  --amber: #f0a838;
+  --amber-ink: #ffc470;
+  --amber-wash: rgb(240 168 56 / 0.1);
+
+  --sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --rail-h: 54px;
+  --panel-w: 348px;
+
+  /* The render's size, derived from the viewport in both axes.
+     Neither term may reference an ancestor: the gate fits itself to the frame
+     it holds (so the registration marks land on the image's corners), which
+     makes any percentage here circular — the canvas would ask the gate how wide
+     it is while the gate is still asking the canvas. */
+  --stage-h: calc(100svh - var(--rail-h) - 210px);
+  --stage-w: calc(100vw - var(--panel-w) - 96px);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-* { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
-#app { display: flex; height: 100vh; }
-#app[hidden] { display: none; }
+/* The page carries the same grain the render does. Thematic rather than
+   decorative: a path tracer's error *is* grain, and it is the one texture this
+   design has earned. Kept under 4% so it reads as paper, not as noise. */
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 9999;
+  pointer-events: none;
+  /* `overlay` modulates instead of adding. Plain opacity over a near-black
+     ground lays a mid-grey film across the whole page and lifts every black in
+     it — which on a page about light transport is the one mistake that cannot
+     be hand-waved. Overlay leaves darks dark and only textures what is already
+     lit. */
+  mix-blend-mode: overlay;
+  opacity: 0.34;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: rgb(240 168 56 / 0.28);
+}
+
+/* ---------------------------------------------------------------- top rail */
+
+.rail {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 60;
+  height: var(--rail-h);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 22px;
+  background: rgb(11 10 9 / 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.015em;
+}
+
+/* A light source, which is the one thing the whole program is about. */
+.mark-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgb(240 168 56 / 0.14), 0 0 16px 2px rgb(240 168 56 / 0.5);
+}
+
+.rail-sub {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.rail-links {
+  margin-left: auto;
+  display: flex;
+  gap: 22px;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.rail-links a {
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.rail-links a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--amber);
+}
+
+/* ------------------------------------------------------------------- stage */
+
+#app {
+  display: flex;
+  margin-top: var(--rail-h);
+  height: calc(100svh - var(--rail-h));
+  min-height: 560px;
+}
 
 #viewport {
-  flex: 1;
-  display: grid;
-  place-items: center;
   position: relative;
+  flex: 1;
   min-width: 0;
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 26px 20px;
+  /* A light table: the glow sits behind the film, not on it. */
+  /* Kept very dark on purpose: the render is the only light source on the page
+     and everything around it should read as the room it is lit in, not as a
+     second surface competing with it. */
   background:
-    repeating-conic-gradient(#15181d 0% 25%, #12151a 0% 50%) 50% / 24px 24px;
-}
-
-canvas {
-  max-width: 100%;
-  max-height: 100%;
-  /* The render is a pixel grid, not a photograph; smoothing it while the
-     resolution is low hides what is actually being computed. */
-  image-rendering: pixelated;
-  border-radius: 4px;
-  box-shadow: 0 8px 40px rgb(0 0 0 / 0.5);
-}
-
-.stats {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  padding: 8px 10px;
-  border-radius: 4px;
-  background: rgb(8 10 13 / 0.82);
-  border: 1px solid var(--line);
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--muted);
-  pointer-events: none;
-  white-space: pre;
-}
-.stats b { color: var(--text); font-weight: 600; }
-
-/* Progress towards the sample target. Block, so it sits on its own line inside
-   the pre-formatted overlay. */
-.stats .bar {
-  display: block;
-  width: 100%;
-  height: 3px;
-  margin-top: 5px;
-  border-radius: 2px;
-  background: #262c36;
+    radial-gradient(66% 55% at 50% 42%, #131010 0%, #0a0908 58%, #080706 100%);
   overflow: hidden;
 }
-.stats .bar > span {
+
+/* A faint optical grid, the kind printed on a focusing screen. */
+#viewport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(70% 60% at 50% 40%, #000 0%, transparent 78%);
+  opacity: 0.5;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+
+/* The gate: what holds a frame of film in a camera. The registration marks are
+   at the corners for the same reason a viewfinder has them — they say "this
+   rectangle is the exposure" without drawing a box around it. */
+.gate {
+  position: relative;
+  padding: 14px;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  /* Sized to the frame it holds, so the registration marks sit on the image's
+     corners at every viewport size rather than floating off them. */
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.reg {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  transition: border-color 0.6s var(--ease);
+}
+.reg.tl { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.reg.tr { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.reg.bl { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.reg.br { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+/* While samples are still landing the gate is warm; once the target is reached
+   it cools back to neutral. The frame itself reports the state. */
+body.is-converging .reg {
+  border-color: rgb(240 168 56 / 0.55);
+}
+
+#canvas {
+  display: block;
+  /* A canvas with `width: auto` takes its intrinsic attribute size and stops —
+     512px, regardless of how much room the stage has. The render should fill
+     the space it is given, so the height budget drives it and the aspect ratio
+     supplies the width. */
+  width: min(var(--stage-h), var(--stage-w));
+  height: auto;
+  aspect-ratio: 1 / 1;
+  background: #000;
+  border: 1px solid var(--line);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.6),
+    0 30px 80px -30px rgb(0 0 0 / 0.9),
+    0 0 120px -40px rgb(240 168 56 / 0.18);
+  cursor: grab;
+}
+
+#canvas:active {
+  cursor: grabbing;
+}
+
+/* ------------------------------------------------------- instrument readout */
+
+.readout {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: rgb(19 17 16 / 0.72);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.readout .cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 15px;
+  border-right: 1px solid var(--line-soft);
+  /* Grow to fill a wrapped row, so a strip that breaks onto two lines does not
+     leave a ragged gap where the cells ran out. */
+  flex: 1 1 auto;
+  min-width: 76px;
+}
+
+.readout .cell:last-of-type {
+  border-right: 0;
+}
+
+.readout .k {
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.readout .v {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Live measurements are the only numbers allowed to be amber. */
+.readout .cell.live .v {
+  color: var(--amber-ink);
+}
+
+.readout .cell.dim .v {
+  color: var(--ink-2);
+}
+
+.readout .bar {
+  flex: 1 0 100%;
+  height: 2px;
+  background: var(--line-soft);
+}
+
+.readout .bar > span {
   display: block;
   height: 100%;
-  background: var(--accent);
-  transition: width 0.2s linear;
+  background: linear-gradient(90deg, rgb(240 168 56 / 0.5), var(--amber));
+  transition: width 0.3s linear;
 }
+
+/* ---------------------------------------------------------------- scrollcue */
+
+.scrollcue {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 26px 0;
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.scrollcue-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line), transparent);
+}
+
+/* ------------------------------------------------------------------- panel */
 
 #panel {
-  width: 300px;
+  width: var(--panel-w);
   flex: none;
   overflow-y: auto;
-  padding: 16px;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
+  overscroll-behavior: contain;
+  padding: 22px 20px 60px;
+  background: var(--surface);
+  border-left: 1px solid var(--line-soft);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
 }
 
-h1 {
-  margin: 0 0 2px;
-  font-size: 14px;
-  letter-spacing: 0.01em;
+#panel::-webkit-scrollbar {
+  width: 9px;
 }
-.subtitle { margin: 0 0 16px; color: var(--muted); font-size: 11px; }
+#panel::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 9px;
+  border: 3px solid var(--surface);
+}
+
+#panel h1 {
+  margin: 0 0 3px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+#panel .subtitle {
+  margin: 0 0 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
 
 fieldset {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 10px 12px 12px;
-  margin: 0 0 12px;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  padding: 18px 0 22px;
+  margin: 0;
 }
-legend { padding: 0 5px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
 
-label { display: block; margin-bottom: 9px; }
-label.check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
-label.check input { width: auto; margin: 0; accent-color: var(--accent); }
-label:last-child { margin-bottom: 0; }
-.label-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
-.label-row span:last-child { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+fieldset:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
 
-select, input[type="range"], button { width: 100%; font: inherit; }
+legend {
+  padding: 0;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+label {
+  display: block;
+  margin-bottom: 14px;
+}
+
+label:last-child {
+  margin-bottom: 0;
+}
+
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.label-row span:last-child {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+label.check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--amber);
+}
+
+select,
+button {
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+}
 
 select {
-  background: #0e1116;
-  color: var(--text);
+  appearance: none;
+  background: var(--surface-2);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 3px;
-  padding: 5px 7px;
+  padding: 8px 30px 8px 10px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color 0.18s var(--ease);
 }
 
-input[type="range"] { accent-color: var(--accent); margin: 0; }
+select:hover {
+  border-color: #3b332d;
+}
+
+select:focus-visible {
+  outline: 0;
+  border-color: var(--amber);
+}
+
+/* A slider that reads as a measuring instrument rather than an OS widget. */
+input[type='range'] {
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 0;
+  box-shadow: 0 0 0 0 rgb(240 168 56 / 0.35);
+  transition: background 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  background: var(--amber);
+  box-shadow: 0 0 0 5px rgb(240 168 56 / 0.16);
+}
+
+input[type='range']::-moz-range-track {
+  height: 2px;
+  background: var(--line);
+  border-radius: 2px;
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+input[type='range']:focus-visible {
+  outline: 0;
+}
 
 button {
-  padding: 7px;
-  margin-bottom: 6px;
-  background: #1d222a;
-  color: var(--text);
+  padding: 8px 12px;
+  margin-bottom: 7px;
+  background: transparent;
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: 3px;
   cursor: pointer;
+  text-align: left;
+  transition: color 0.18s var(--ease), border-color 0.18s var(--ease),
+    background 0.18s var(--ease);
 }
-button:hover { background: #252b35; border-color: #39414e; }
-button:active { background: #171c23; }
-button:disabled { opacity: 0.45; cursor: default; }
 
-.note {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: #45392e;
+  background: var(--amber-wash);
 }
-.note code { font-family: var(--mono); color: #b9c2d0; }
+
+button:active:not(:disabled) {
+  background: rgb(240 168 56 / 0.05);
+}
+
+button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* Notes are marginalia: present, quiet, and folded until asked for. There is a
+   lot of genuine explanation in this panel and none of it should compete with
+   the control it annotates. */
+.note {
+  position: relative;
+  margin: 9px 0 0;
+  padding-left: 11px;
+  border-left: 1px solid var(--line-soft);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.62;
+}
+
+.note code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+
+.note strong {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.note.foldable {
+  cursor: pointer;
+}
+
+.note.foldable.folded {
+  max-height: 3.3em;
+  overflow: hidden;
+  mask-image: linear-gradient(#000 45%, transparent 100%);
+}
+
+.note.foldable::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--amber);
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
+}
+
+.note.foldable:hover::after {
+  opacity: 0.65;
+}
 
 .problem {
-  margin: 8px 0 0;
-  padding: 8px 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #5b3a2a;
+  border-left-width: 2px;
   border-radius: 3px;
-  border: 1px solid #5a3030;
-  background: #241717;
-  color: #ffb4b4;
-  font-size: 11px;
-  font-family: var(--mono);
+  background: #1d1411;
+  color: #ffb9a0;
+  font-size: 11.5px;
   white-space: pre-wrap;
 }
 
-#unsupported {
-  max-width: 640px;
-  margin: 12vh auto;
-  padding: 0 24px;
+/* -------------------------------------------------------------------- essay */
+
+.essay {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 26px 30px;
 }
-#unsupported[hidden] { display: none; }
-#unsupported h1 { font-size: 20px; margin-bottom: 10px; }
-#unsupported p { color: var(--muted); line-height: 1.65; }
-#unsupported img { width: 100%; border-radius: 4px; border: 1px solid var(--line); margin-top: 18px; }
+
+.band {
+  padding: 78px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.band:first-child {
+  border-top: 0;
+  padding-top: 46px;
+}
+
+.eyebrow {
+  margin: 0 0 20px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.lede {
+  margin: 0 0 44px;
+  font-size: clamp(30px, 4.4vw, 52px);
+  line-height: 1.12;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  max-width: 20ch;
+}
+
+.lede em,
+h3 em,
+.essay p em {
+  font-style: italic;
+  color: var(--amber-ink);
+}
+
+.band h3 {
+  margin: 0 0 18px;
+  font-size: clamp(20px, 2.1vw, 26px);
+  line-height: 1.24;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  max-width: 22ch;
+}
+
+.band h3.wide {
+  max-width: none;
+  margin-bottom: 34px;
+}
+
+.essay p {
+  color: var(--ink-2);
+  margin: 0 0 17px;
+  /* A hard ceiling on measure, for the widths where a grid track is wider than
+     anything comfortable to read. */
+  max-width: 70ch;
+}
+
+/* Self-sizing rather than breakpoint-driven: `auto-fit` with a sensible minimum
+   keeps every column inside a readable measure at any width, instead of
+   snapping from three columns straight to one full-bleed 110-character line. */
+.cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(262px, 1fr));
+  gap: 30px 44px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 46px 72px;
+}
+
+/* Numbers are the heroes here — the project's claims are all measurements, so
+   the figures get display-scale type and the prose explains them. */
+.figures,
+.scoreboard {
+  list-style: none;
+  margin: 30px 0 0;
+  padding: 0;
+}
+
+.figures li {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.figures b {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  min-width: 74px;
+}
+
+.figures span {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.scoreboard {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin-top: 52px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.scoreboard li {
+  background: var(--ground-2);
+  padding: 26px 22px 24px;
+}
+
+.scoreboard b {
+  display: block;
+  font-family: var(--mono);
+  font-size: clamp(26px, 3.2vw, 38px);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--amber-ink);
+  margin-bottom: 10px;
+}
+
+.scoreboard b sup {
+  font-size: 0.5em;
+  letter-spacing: 0;
+}
+
+.scoreboard span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+  gap: 18px;
+}
+
+.card {
+  padding: 24px 22px 22px;
+  background: var(--ground-2);
+  border: 1px solid var(--line-soft);
+  border-top: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.card-tag {
+  margin: 0 0 12px !important;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.card p:last-child {
+  margin-bottom: 0;
+  font-size: 13.5px;
+}
+
+.card b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Sections arrive rather than appearing, which suits a page about convergence. */
+.band {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.8s var(--ease), transform 0.8s var(--ease);
+}
+
+.band.seen {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .band {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .readout .bar > span {
+    transition: none;
+  }
+}
+
+/* -------------------------------------------------------------------- foot */
+
+.foot {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 30px 26px 60px;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 30px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.foot p {
+  margin: 0;
+  max-width: 56ch;
+}
+
+.foot a {
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 2px;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.foot a:hover {
+  color: var(--amber-ink);
+  border-bottom-color: var(--amber);
+}
+
+/* ------------------------------------------------------------- unsupported */
+
+#unsupported {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 90px 26px;
+  text-align: center;
+}
+
+#unsupported h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 14px;
+}
+
+#unsupported p {
+  color: var(--ink-2);
+  margin: 0 0 16px;
+}
+
 #unsupported .detail {
   font-family: var(--mono);
   font-size: 11px;
-  background: var(--panel);
+  color: var(--ink-3);
+  white-space: pre-wrap;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--ground-2);
+}
+
+#unsupported img {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 26px;
   border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 10px 12px;
-  color: #9aa3b2;
+  border-radius: 3px;
+}
+
+/* ---------------------------------------------------------------- responsive */
+
+@media (max-width: 1080px) {
+  .scoreboard {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .lede {
+    max-width: 18ch;
+  }
+}
+
+@media (max-width: 860px) {
+  /* The panel stacks below, so the render gets the full width. */
+  :root {
+    --stage-w: calc(100vw - 56px);
+    --stage-h: calc(100svh - var(--rail-h) - 250px);
+  }
+  .cols,
+  .split,
+  .cards {
+    grid-template-columns: 1fr;
+  }
+  #app {
+    flex-direction: column;
+    height: auto;
+  }
+  #viewport {
+    padding: 22px 16px 18px;
+    min-height: 74svh;
+  }
+  #canvas {
+    max-height: 58svh;
+  }
+  #panel {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
+    overflow: visible;
+  }
+  .rail-sub {
+    display: none;
+  }
+  .band {
+    padding: 52px 0;
+  }
+  .scoreboard {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .rail-links a:not(:last-child) {
+    display: none;
+  }
+  .essay,
+  .foot {
+    padding-inline: 18px;
+  }
+}
+
+/* Standing facts, below the moving ones. */
+.readout .sub {
+  flex: 1 0 100%;
+  padding: 7px 15px 8px;
+  border-top: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* Interaction hint. Present because the wheel deliberately does *not* dolly by
+   default — see `controls.ts`. */
+.hint {
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.hint kbd {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-2);
+}
+
+/* Touch has no Alt key and no wheel; the dolly hint is desktop-only. */
+@media (max-width: 560px), (hover: none) {
+  .hint .kb-hint {
+    display: none;
+  }
 }

@@ -3,20 +3,215 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WebGPU Path Tracer</title>
+    <title>Path Tracer — light transport in WebGPU compute shaders</title>
     <meta
       name="description"
-      content="A physically-based Monte Carlo path tracer running in WebGPU compute shaders."
+      content="A physically-based Monte Carlo path tracer written from scratch in WebGPU compute shaders. No rendering libraries, no hardware ray-tracing, verified against an independent CPU implementation."
+    />
+    <meta name="theme-color" content="#0b0a09" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
     />
   </head>
   <body>
+    <!-- The page carries the same grain the render does, at 3% opacity. -->
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="rail">
+      <a class="mark" href="#top">
+        <span class="mark-dot" aria-hidden="true"></span>
+        <span class="mark-name">Path&nbsp;Tracer</span>
+      </a>
+      <p class="rail-sub">Monte Carlo light transport · WebGPU compute</p>
+      <nav class="rail-links">
+        <a href="#how">How it works</a>
+        <a href="#proof">Verification</a>
+        <a
+          href="https://github.com/DhanushKrishna4/WebGPU-path-tracer"
+          target="_blank"
+          rel="noopener"
+          >Source ↗</a
+        >
+      </nav>
+    </header>
+
     <div id="app">
       <main id="viewport">
-        <canvas id="canvas" width="512" height="512"></canvas>
-        <div id="overlay" class="stats"></div>
+        <div class="stage">
+          <div class="gate">
+            <span class="reg tl" aria-hidden="true"></span>
+            <span class="reg tr" aria-hidden="true"></span>
+            <span class="reg bl" aria-hidden="true"></span>
+            <span class="reg br" aria-hidden="true"></span>
+            <canvas id="canvas" width="512" height="512"></canvas>
+          </div>
+          <div id="overlay" class="readout"></div>
+          <p class="hint">
+            Drag to orbit · Shift-drag to pan<span class="kb-hint"> ·
+              <kbd>Alt</kbd> + scroll to dolly</span
+            >
+          </p>
+        </div>
       </main>
       <aside id="panel"></aside>
     </div>
+
+    <div class="scrollcue" aria-hidden="true">
+      <span>What you're looking at</span>
+      <span class="scrollcue-line"></span>
+    </div>
+
+    <article class="essay" id="how">
+      <section class="band">
+        <p class="eyebrow">The idea</p>
+        <h2 class="lede">
+          Games approximate light. This one<br />
+          <em>simulates</em> it, and the grain is the proof.
+        </h2>
+        <div class="cols">
+          <p>
+            For every pixel, a ray leaves the camera and enters the scene. It hits a surface,
+            picks a new direction according to how that material actually scatters light, and
+            bounces again — until it finds a light source, or it doesn't. That single path
+            contributes one noisy guess at the pixel's true colour.
+          </p>
+          <p>
+            Average thousands of those guesses and the estimate converges on the correct
+            answer. This is Monte Carlo integration, and it is the honest tool here rather
+            than a shortcut: the equation governing light transport has no closed-form
+            solution for a real scene, so sampling it is the method, not an approximation of
+            one.
+          </p>
+          <p>
+            Which is why the image above arrives grainy and settles. That grain <em>is</em>
+            the statistical error, and it falls as one over the square root of the sample
+            count — four times the work for half the noise. Everything else in the project
+            exists to make that loop faster, or to make each sample count for more.
+          </p>
+        </div>
+      </section>
+
+      <section class="band split">
+        <div>
+          <p class="eyebrow">Finding the light</p>
+          <h3>A small lamp is almost impossible to hit by chance.</h3>
+          <p>
+            Bounce at random in a Cornell box and you wander into the ceiling light roughly
+            once in a thousand tries, so the picture is mostly black speckle. Aim
+            <em>directly</em> at the light instead and that problem disappears — but now
+            mirrors break, because the only direction that matters to a mirror is the one the
+            reflection came from.
+          </p>
+          <p>
+            Multiple importance sampling runs both strategies at every bounce and weights
+            each by how well it explains the result, so whichever is better in that situation
+            dominates. It beats both, rather than landing between them.
+          </p>
+          <ul class="figures">
+            <li><b>2.4×</b><span>less noise than BSDF sampling alone</span></li>
+            <li><b>1.9×</b><span>less noise than light sampling alone</span></li>
+          </ul>
+        </div>
+        <div>
+          <p class="eyebrow">Finding the geometry</p>
+          <h3>368,640 triangles, and a ray touches about four of them.</h3>
+          <p>
+            Testing every ray against every triangle is hopeless at this scale. So the
+            geometry is wrapped in a tree of nested boxes: miss a box and every triangle
+            inside it is skipped in one step. There are two builders — one on the CPU that
+            optimises the tree's quality, and one that builds the whole thing in compute
+            shaders using Morton codes, a radix sort and a parallel hierarchy construction.
+          </p>
+          <ul class="figures">
+            <li><b>31</b><span>box tests per ray, on the heaviest scene</span></li>
+            <li><b>3.7</b><span>triangle tests per ray</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="band" id="proof">
+        <p class="eyebrow">Verification</p>
+        <h2 class="lede">
+          A renderer that looks right and <em>is</em> right<br />
+          are different claims.
+        </h2>
+        <div class="cols">
+          <p>
+            Almost every bug in this project produced an image that still looked like the
+            scene. A transposed counter, a normal transformed by the wrong matrix, a sampler
+            reading a stale index — each one renders something entirely plausible. Screenshots
+            cannot catch that.
+          </p>
+          <p>
+            So there are two independent implementations: a reference tracer on the CPU in
+            Rust, and the GPU version in WGSL. They draw from bit-identical random streams,
+            which makes comparing them meaningful — same samples, same order, different
+            machine — and they are diffed automatically on every test run.
+          </p>
+          <p>
+            The rest of the suite checks physics rather than pixels. Put an object inside a
+            uniformly glowing sphere and a correctly energy-conserving material makes it
+            <em>vanish</em>; any energy lost or invented shows up immediately. Chi-squared
+            tests verify statistically that every sampler matches the probability density its
+            own maths claims.
+          </p>
+        </div>
+        <ul class="scoreboard">
+          <li><b>261</b><span>tests, all measured against an independent reference</span></li>
+          <li><b>8.17<sup>e−5</sup></b><span>browser vs. native GPU, mean relative error</span></li>
+          <li><b>1.000000</b><span>energy ratio in the white furnace test</span></li>
+          <li><b>0</b><span>rendering, ray-tracing or BVH libraries used</span></li>
+        </ul>
+      </section>
+
+      <section class="band">
+        <p class="eyebrow">What it cost</p>
+        <h3 class="wide">Three bugs worth the telling.</h3>
+        <div class="cards">
+          <div class="card">
+            <p class="card-tag">Silent, for two build steps</p>
+            <p>
+              The browser allocated <b>71%</b> of the memory it then indexed, because a buffer
+              size was a literal in TypeScript while the struct it described grew by 32 bytes
+              in Rust. Nothing crashed — the graphics API clamps out-of-bounds writes — so
+              paths overwrote each other and the renderer produced a plausible, converging,
+              <b>446% wrong</b> image. Found by auditing, not by failing.
+            </p>
+          </div>
+          <div class="card">
+            <p class="card-tag">The instrument agreed with the fault</p>
+            <p>
+              The convergence meter did not notice, and could not have. It measures how
+              <em>noisy</em> an image is, not whether it is the right image — and a scrambled
+              render is perfectly capable of being smooth.
+            </p>
+          </div>
+          <div class="card">
+            <p class="card-tag">Sometimes the test is wrong</p>
+            <p>
+              One test asserted a scene with a mirror and a glass ball must be noisier than a
+              plain box, because caustics. It failed, and the renderer was right: nearly every
+              pixel there is well lit, and the caustic is a minority an image-wide average
+              barely feels.
+            </p>
+          </div>
+        </div>
+      </section>
+    </article>
+
+    <footer class="foot">
+      <p>
+        Rust · WGSL · TypeScript · WebGPU. Built from scratch over nineteen steps, with the
+        reasoning for every decision written down.
+      </p>
+      <a href="https://github.com/DhanushKrishna4/WebGPU-path-tracer" target="_blank" rel="noopener"
+        >Read the source ↗</a
+      >
+    </footer>
+
     <div id="unsupported" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
