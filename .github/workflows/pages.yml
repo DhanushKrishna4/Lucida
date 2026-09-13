@@ -1,0 +1,64 @@
+# Build the browser renderer and publish it to GitHub Pages.
+#
+# The Rust crates are the reference implementation and the test harness; none of
+# them ship to the page. What deploys is `web/` — the TypeScript host, the WGSL
+# it imports from `shaders/`, and the packed scene assets.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  # So a deploy can be re-run without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deploys at once, and never cancel one in flight: a half-published
+# site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      # `npm run build` is `tsc --noEmit && vite build`, so a type error fails
+      # the deploy rather than shipping a broken page.
+      - name: Build
+        working-directory: web
+        env:
+          # A project site is served from a repository subpath, not from the
+          # domain root. Read from the repository name rather than hardcoded, so
+          # a fork deploys to its own path with no edit.
+          PT_BASE: /${{ github.event.repository.name }}/
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
