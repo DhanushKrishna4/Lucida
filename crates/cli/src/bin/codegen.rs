@@ -18,6 +18,10 @@ use pt_core::gpu_layout::{
 };
 
 use glam::Vec3;
+use pt_core::diagnostic::RenderMode;
+use pt_core::integrator::SamplingMode;
+use pt_core::sobol::SamplerKind;
+use pt_core::tonemap::Tonemap;
 use pt_core::scenes;
 use std::mem::{offset_of, size_of};
 use std::path::Path;
@@ -178,6 +182,63 @@ fn layout_ts() -> String {
         size_of::<GpuWavefrontCounters>(),
         size_of::<GpuDispatchArgs>()
     ));
+
+    // Wire indices for every enum the host has to turn into a number.
+    //
+    // These were four hand-kept tables under "must match `X::index()`"
+    // comments. All four happened to be right, which is exactly what the
+    // wavefront's path-state stride also was, for two build steps, under the
+    // same kind of comment. A shader reads these to pick a branch, so a drifted
+    // one does not fail — it silently renders the wrong mode under the right
+    // label. The union type is emitted alongside so a rename cannot leave a
+    // stale key behind either.
+    for (ts_name, variants) in [
+        (
+            "SamplingMode",
+            SamplingMode::ALL.iter().map(|v| (v.name(), v.index())).collect::<Vec<_>>(),
+        ),
+        (
+            "SamplerKind",
+            SamplerKind::ALL.iter().map(|v| (v.name(), v.index())).collect(),
+        ),
+        (
+            "DiagnosticMode",
+            RenderMode::all().iter().map(|v| (v.name(), v.index())).collect(),
+        ),
+        (
+            "Tonemap",
+            Tonemap::ALL.iter().map(|v| (v.name(), v.index())).collect(),
+        ),
+    ] {
+        let union = variants
+            .iter()
+            .map(|(n, _)| format!("'{n}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        s.push_str(&format!("export type {ts_name} = {union};\n"));
+        s.push_str(&format!(
+            "export const {}_INDEX: Record<{ts_name}, number> = {{ ",
+            ts_name
+                .chars()
+                .flat_map(|c| if c.is_uppercase() {
+                    vec!['_', c]
+                } else {
+                    vec![c.to_ascii_uppercase()]
+                })
+                .collect::<String>()
+                .trim_start_matches('_')
+                .to_string()
+        ));
+        s.push_str(
+            &variants
+                .iter()
+                .map(|(n, i)| format!("{n}: {i}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        s.push_str(" };\n");
+    }
+    s.push('\n');
 
     s.push_str("export const UNIFORM_OFFSET = {\n");
     for (name, off) in [

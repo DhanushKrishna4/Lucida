@@ -250,6 +250,10 @@ pub enum SamplerKind {
 }
 
 impl SamplerKind {
+    /// Every variant, in wire order. Codegen enumerates this to emit the
+    /// browser's index table, so the two cannot drift.
+    pub const ALL: [SamplerKind; 2] = [SamplerKind::Independent, SamplerKind::Sobol];
+
     pub fn name(self) -> &'static str {
         match self {
             SamplerKind::Independent => "independent",

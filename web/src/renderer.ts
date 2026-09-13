@@ -19,7 +19,29 @@
  * read-modify-write storage textures are not core WebGPU; `rgba32float` is
  * write-only there.
  */
-import { ACCUM_BYTES_PER_PIXEL, UNIFORMS_SIZE, writeUniforms } from './generated/layout';
+import {
+  ACCUM_BYTES_PER_PIXEL,
+  DIAGNOSTIC_MODE_INDEX,
+  SAMPLER_KIND_INDEX,
+  SAMPLING_MODE_INDEX,
+  TONEMAP_INDEX,
+  UNIFORMS_SIZE,
+  writeUniforms,
+} from './generated/layout';
+// Re-exported so the rest of the host imports its vocabulary from one place,
+// and so a renamed variant in Rust breaks the build rather than a render.
+export type {
+  DiagnosticMode,
+  SamplerKind,
+  SamplingMode,
+  Tonemap,
+} from './generated/layout';
+import type {
+  DiagnosticMode,
+  SamplerKind,
+  SamplingMode,
+  Tonemap,
+} from './generated/layout';
 
 import { resolveCamera } from './camera';
 import type { CameraDef } from './generated/scenes';
@@ -31,33 +53,19 @@ import denoiseSource from '../../shaders/denoise/atrous.wgsl';
 import convergenceSource from '../../shaders/stats/convergence.wgsl';
 import { WavefrontPass } from './wavefront';
 
-/** Must match `SamplingMode::index()` in crates/core/src/integrator.rs. */
-const SAMPLING_INDEX: Record<SamplingMode, number> = { bsdf: 0, nee: 1, mis: 2 };
-/** Must match `SamplerKind::index()` in crates/core/src/sobol.rs. */
-const SAMPLER_INDEX: Record<SamplerKind, number> = { independent: 0, sobol: 1 };
-/** Must match `RenderMode::index()` in crates/core/src/diagnostic.rs. */
-const DIAGNOSTIC_INDEX: Record<DiagnosticMode, number> = {
-  beauty: 0,
-  normal: 1,
-  albedo: 2,
-  depth: 3,
-  heat: 4,
-};
-
-/** Must match `Tonemap::index()` in crates/core/src/tonemap.rs. */
-const TONEMAP_INDEX: Record<Tonemap, number> = {
-  clamp: 0,
-  reinhard: 1,
-  aces: 2,
-  agx: 3,
-};
+// Wire indices and their union types are generated from the Rust enums; see
+// `crates/cli/src/bin/codegen.rs`. They used to be four hand-kept tables here
+// under "must match" comments, which is the arrangement that let the
+// wavefront's path-state stride drift by 32 bytes for two build steps.
+const SAMPLING_INDEX = SAMPLING_MODE_INDEX;
+const SAMPLER_INDEX = SAMPLER_KIND_INDEX;
+const DIAGNOSTIC_INDEX = DIAGNOSTIC_MODE_INDEX;
 
 import megakernelSource from '../../shaders/trace/megakernel.wgsl';
 import gradientSource from '../../shaders/gradient.wgsl';
 import displaySource from '../../shaders/display.wgsl';
 
 export type RenderMode = 'gradient' | 'pathtrace';
-export type Tonemap = 'clamp' | 'reinhard' | 'aces' | 'agx';
 
 export interface RenderSettings {
   mode: RenderMode;
@@ -92,10 +100,7 @@ export interface RenderSettings {
   diagnostic: DiagnosticMode;
 }
 
-/** Must match `SamplingMode::index()` in crates/core/src/integrator.rs. */
-export type SamplingMode = 'bsdf' | 'nee' | 'mis';
-export type SamplerKind = 'independent' | 'sobol';
-export type DiagnosticMode = 'beauty' | 'normal' | 'albedo' | 'depth' | 'heat';
+
 
 /**
  * Which GPU path-tracing architecture to run.

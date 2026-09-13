@@ -16,6 +16,15 @@ export const SHADOW_RAY_SIZE = 48;
 export const WAVEFRONT_COUNTERS_SIZE = 16;
 export const DISPATCH_ARGS_SIZE = 32;
 
+export type SamplingMode = 'bsdf' | 'nee' | 'mis';
+export const SAMPLING_MODE_INDEX: Record<SamplingMode, number> = { bsdf: 0, nee: 1, mis: 2 };
+export type SamplerKind = 'independent' | 'sobol';
+export const SAMPLER_KIND_INDEX: Record<SamplerKind, number> = { independent: 0, sobol: 1 };
+export type DiagnosticMode = 'beauty' | 'normal' | 'albedo' | 'depth' | 'heat';
+export const DIAGNOSTIC_MODE_INDEX: Record<DiagnosticMode, number> = { beauty: 0, normal: 1, albedo: 2, depth: 3, heat: 4 };
+export type Tonemap = 'clamp' | 'reinhard' | 'aces' | 'agx';
+export const TONEMAP_INDEX: Record<Tonemap, number> = { clamp: 0, reinhard: 1, aces: 2, agx: 3 };
+
 export const UNIFORM_OFFSET = {
   camOrigin: 0,
   lensRadius: 12,
